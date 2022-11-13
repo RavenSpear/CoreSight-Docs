@@ -78,3 +78,34 @@
 4. 用途
 
 收集PreProcessor生成的数据流，组合成16个8位宽的连续数据流，写入FIFO。本组件中包含一个32x8的队列缓冲区，120位输入缓冲，128位输出缓冲。输入缓冲的数据直接进入缓冲区队列排队。判断队列长度，如果超过16，则将队首的16个数据输出到输出缓冲，后半部分的数据推至队首。
+
+## 组件3：FIFO
+
+1. 输入
+
+| 端口名 | 宽度 | 描述 |
+| :----: | :---: | :-----------------: |
+| clk | 1 | 全局时钟 |
+| F_i_data | 128 | 从Collection中输入的数据  |
+| write_enable | 1 | 来自Collection的使能信号  |
+| read_enable  | 1 | 来自ControlCore的读取使能信号  |
+
+2. 输出
+
+| 端口名 | 宽度 | 描述 |
+| :----: | :---: | :-----------------: |
+| out_valid | 1 | 输出使能 |
+| F_o_data | 128 | 待ControlCore读取的数据|
+| empty | 1 | FIFO为空 |shu
+
+3. 周期行为
+
+| 周期 | 行为 |
+| :-: | :-: |
+| X | read_enable的上升不可预知，一般read_enable会在empty为0下一个周期下降，out_valid上升，tmp_data生成数据 |
+| 1 | 随着write_enable上升，mem从group_index处写入F_i_data, group_index+=1 |
+
+
+4. 用途
+
+收集Collection推送的128位数据，并将之排队；数据由ControlCore消费，ControlCore会判断当前FIFO是否为空，并通过read_enable发起读取请求，如out_valid为1，则数据会被ControlCore读取。
