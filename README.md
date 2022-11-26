@@ -44,3 +44,87 @@ Four CPU-associated ETM ids are also probed by L1_led_dump:
 | ETM1 | 0x12 |
 | ETM2 | 0x14 |
 | ETM3 | 0x16 |
+
+Three indirect-branch addresses are collected, which can be looked up in disassembled vmlinux image ( generate by petalinux ): 
+
+```
+$ aarch64-linux-gnu-objdump -S --start-address=0xFFFF800010ABFF00  vmlinux > vmlinux.S
+$ cat vmlinux.S
+...
+...
+int coresight_timeout(struct csdev_access *csa, u32 offset,
+		      int position, int value)
+{
+...
+...
+static inline u32 csdev_access_read32(struct csdev_access *csa, u32 offset)
+{
+...
+...
+
+#define __raw_readl __raw_readl
+static __always_inline u32 __raw_readl(const volatile void __iomem *addr)
+{
+	u32 val;
+	asm volatile(ALTERNATIVE("ldr %w0, [%1]",
+ffff800010abffb0:	b9400084 	ldr	w4, [x4]
+ffff800010abffb4:	d50331bf 	dmb	oshld
+ffff800010abffb8:	2a0403e4 	mov	w4, w4
+ffff800010abffbc:	ca040080 	eor	x0, x4, x4
+ffff800010abffc0:	b5000000 	cbnz	x0, ffff800010abffc0 <coresight_timeout+0x70>
+ffff800010abffc4:	8a040284 	and	x4, x20, x4     <--- This may be where the trace started, instead of a branched address
+		if (value) {
+ffff800010abffc8:	35fffe15 	cbnz	w21, ffff800010abff88 <coresight_timeout+0x38>
+			if (!(val & BIT(position)))
+ffff800010abffcc:	b5fffe04 	cbnz	x4, ffff800010abff8c <coresight_timeout+0x3c>
+				return 0;
+ffff800010abffd0:	52800000 	mov	w0, #0x0                   	// #0
+	}
+
+	return -EAGAIN;
+}
+...
+...
+ffff800010ad3ca0 <etm4_enable_hw>:
+{
+...
+...
+static inline bool etm4x_is_ete(struct etmv4_drvdata *drvdata)
+{
+	return drvdata->arch >= ETM_ARCH_ETE;
+...
+...
+	if (coresight_timeout(csa, TRCSTATR, TRCSTATR_IDLE_BIT, 0))
+ffff800010ad3dd4:	aa1303e0 	mov	x0, x19
+ffff800010ad3dd8:	52800003 	mov	w3, #0x0                   	// #0
+ffff800010ad3ddc:	52800002 	mov	w2, #0x0                   	// #0
+ffff800010ad3de0:	52800181 	mov	w1, #0xc                   	// #12
+ffff800010ad3de4:	97ffb05b 	bl	ffff800010abff50 <coresight_timeout>
+ffff800010ad3de8:	35003a20 	cbnz	w0, ffff800010ad452c <etm4_enable_hw+0x88c>     <--- first branched address
+	dsb(sy);
+ffff800010ad3dec:	d5033f9f 	dsb	sy
+	isb();
+ffff800010ad3df0:	d5033fdf 	isb
+ffff800010ad3df4:	a9425bf5 	ldp	x21, x22, [sp, #32]
+ffff800010ad3df8:	a94573fb 	ldp	x27, x28, [sp, #80]
+	if (csa->io_mem)
+...
+...
+```
+A more detailed calling stack can be inferred by referring to the source of CoreSight-Driver/:
+```
+etm4_enable_hw(){
+...
+    etm4x_relaxed_write32(csa, 1, TRCPRGCTLR);      <--- etm0 enabling
+    coresight_timeout(){
+        csdev_access_read32(){
+            ...
+            cbnz	x0, ffff800010abffc0 <coresight_timeout+0x70>   <--- loop until TRCSTATR.IDLE down to 0, etm working
+            and	x4, x20, x4     <--- the first instruction address traced by etm
+            ...
+        }
+    }
+...
+}
+--
+```
