@@ -120,7 +120,7 @@ etm4_enable_hw(){
         csdev_access_read32(){
             ...
             cbnz	x0, ffff800010abffc0 <coresight_timeout+0x70>   <--- loop until TRCSTATR.IDLE down to 0, etm working
-            and	x4, x20, x4     <--- the first instruction address traced by etm
+            and	    x4, x20, x4     <--- the first instruction address traced by etm
             ...
         }
     }
